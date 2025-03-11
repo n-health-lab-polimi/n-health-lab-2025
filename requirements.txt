@@ -2,4 +2,8 @@ ipykernel
 numpy
 matplotlib
 scipy
-opencv-python
+Pillow
+cv2
+sklearn
+joblib
+scikit-learn
