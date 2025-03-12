@@ -3,7 +3,9 @@ numpy
 matplotlib
 scipy
 Pillow
-cv2
+opencv-python
 sklearn
 joblib
 scikit-learn
+pandas
+seaborn
