@@ -4,7 +4,6 @@ matplotlib
 scipy
 Pillow
 opencv-python
-sklearn
 joblib
 scikit-learn
 pandas
