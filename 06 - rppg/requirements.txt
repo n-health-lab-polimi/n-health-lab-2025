@@ -17,4 +17,5 @@ torchvision
 tables
 h5py
 numba
+nbformat
 pyvhr-cpu
