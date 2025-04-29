@@ -203,40 +203,40 @@ if __name__ == '__main__':
 
     f = Flir(baseURL=args.url)
 
-    self.login()
+    f.login()
 
     if (args.type == 'visual'):
-        self.setVisualMode()
+        f.setVisualMode()
         print("Setting visual mode")
     elif (args.type == 'ir'):
-        self.setIRMode()
+        f.setIRMode()
         print("Setting IR mode")
     elif (args.type == 'msx'):
-        self.setMSXMode()
+        f.setMSXMode()
         print("Setting MSX mode")
     else:
         print("Wrong argument given to parameter 'type'")
 
     if (args.nooverlay):
-        self.showOverlay(False)
+        f.showOverlay(False)
         print("Hiding the overlay")
     else:
-        self.showOverlay(True)
+        f.showOverlay(True)
         print("Showing the overlay")
 
     if (args.light == 'off'):
-        self.light(False)
+        f.light(False)
         print("Torchlight deactivated")
     elif (args.light == 'on'):
-        self.light(True)
+        f.light(True)
         print("Torchlight activated")
 
     if (args.autorange):
-        self.setAutoTemperatureRange()
+        f.setAutoTemperatureRange()
         print("Auto range set")
 
     if (args.range):
-        self.setTemperatureRange(args.range[0],args.range[1])
+        f.setTemperatureRange(args.range[0],args.range[1])
         print("Range set to [" + str(args.range[0]) + "," + str(args.range[1]) + "]")
 
     if (args.interval):
@@ -245,24 +245,24 @@ if __name__ == '__main__':
             while True:
                 timestamp = strftime("%H%M%S")
                 filename = args.snap.strip('.jpg') + '_' + timestamp + '.jpg'
-                self.getSnapshot(filename)
+                f.getSnapshot(filename)
 
                 if (args.csv):
                     filenamecsv = filename.strip('.jpg') + '.csv'
-                    self.getCsvData(filename, filenamecsv, False)
+                    f.getCsvData(filename, filenamecsv, False)
 
                 if (args.interval > 0):
                     time.sleep(args.interval)
 
     elif (args.snap):
-        self.getSnapshot(args.snap)
+        f.getSnapshot(args.snap)
 
     if (args.csv):
         if (not args.snap):
-            self.getSnapshot('snap.jpg')
-            self.getCsvData('snap.jpg',args.csv, args.plot)
+            f.getSnapshot('snap.jpg')
+            f.getCsvData('snap.jpg',args.csv, args.plot)
         else:
-            self.getCsvData(args.snap, args.csv, args.plot)
+            f.getCsvData(args.snap, args.csv, args.plot)
 
     # if len(sys.argv) > 1:
     #     res = sys.argv[1]
