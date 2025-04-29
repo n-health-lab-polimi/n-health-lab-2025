@@ -1,0 +1,286 @@
+#!/usr/bin/env python
+
+# Interface to FLIR AX8 camera
+
+import requests
+import argparse
+import time
+import datetime
+from time import strftime
+
+import flir_image_extractor
+
+parser = argparse.ArgumentParser(description='Functionality to control/read data from the FLIR AX8 camera.')
+
+parser.add_argument('--url', action="store", help="the url of the camera, including http://", required=True)
+parser.add_argument('--type', action="store", help="the type of image", choices = ['msx','ir','visual'])
+parser.add_argument('--snap', action="store", help="take a snapshot with the given filename")
+parser.add_argument('--interval', action="store", type=float, help="tries to take snapshots at given interval")
+parser.add_argument('--csv', action="store", help="take a snapshot and export to csv-file")
+parser.add_argument('--plot', action="store_true", help="shows the images")
+parser.add_argument('--range', action="store", type=float, nargs=2, help="temperature range")
+parser.add_argument('--autorange', action="store_true", help="use auto scale")
+parser.add_argument('--nooverlay', action="store_true", help="hide the overlay")
+parser.add_argument('--light', action="store", help="activate the torchlight", choices = ['on','off'])
+parser.add_argument('--debug', action="store_true", help="prints extra debug information")
+
+debug = False
+session = requests.Session()
+
+
+def CtoK(temp):
+    return temp+273.15
+
+class Flir:
+    def __init__(self, baseURL='http://192.168.11.47/'):
+        self.baseURL = baseURL
+
+    def setResource(self,resource,value):
+        message = session.post(self.baseURL + 'res.php', data={'action':'set','resource':resource,'value':value})
+
+        if (debug and message != "\"\""):
+            print(" Return message when setting " + resource + " to " + str(value) + ":\r\n" +message)
+
+        return (message)
+
+    def getResource(self,resource):
+        return session.post(self.baseURL + 'res.php', data={'action':'get','resource':resource})
+
+    def setVisualMode(self):
+        self.setResource('.image.sysimg.fusion.fusionData.fusionMode',1)
+        self.setResource('.image.sysimg.fusion.fusionData.useLevelSpan',0)
+
+    def setIRMode(self):
+        self.setResource('.image.sysimg.fusion.fusionData.fusionMode',1)
+        self.setResource('.image.sysimg.fusion.fusionData.useLevelSpan',1)
+
+    def setMSXMode(self):
+        self.setResource('.image.sysimg.fusion.fusionData.fusionMode',3)
+
+    def setPeriodicMode(self):
+        self.setResource('.resmon.schedule.active','true')
+        self.setResource('.resmon.schedule.config.ftp', '192.168.11.18')
+        self.setResource('.resmon.schedule.config.imageFormat', 'JPEG')
+        self.setResource('.resmon.schedule.actions.sendImage', 'true')
+        self.setResource('.resmon.schedule.results.1.active', 'true')
+        self.setResource('.resmon.schedule.wednesday.active', 'true')
+        self.setResource('.resmon.schedule.wednesday.mode', 'repeat')
+        self.setResource('.resmon.schedule.wednesday.start', '10:00')
+        self.setResource('.resmon.schedule.wednesday.stop', '22:00')
+        self.setResource('.resmon.schedule.wednesday.interval', '00:01')
+        self.setResource('.resmon.schedule.reinit','true')
+
+    def getTemperatureValue(self, x, y):
+        self.setResource('.image.sysimg.measureFuncs.spot.1.active','true')
+        self.setResource('.image.sysimg.measureFuncs.spot.1.x',x)
+        self.setResource('.image.sysimg.measureFuncs.spot.1.y',y)
+        value = self.getResource('.image.sysimg.measureFuncs.spot.1.valueT')
+        return float(value[1:-2])
+
+    def setTemperatureRange(self,minTemp, maxTemp):
+        self.setResource('.image.contadj.adjMode', 'manual')
+        self.setResource('.image.sysimg.basicImgData.extraInfo.lowT',CtoK(minTemp))
+        self.setResource('.image.sysimg.basicImgData.extraInfo.highT',CtoK(maxTemp))
+
+    def setAutoTemperatureRange(self):
+        self.setResource('.image.contadj.adjMode', 'auto')
+
+    def showOverlay(self,show=True):
+        if show:
+            self.setResource('.resmon.config.hideGraphics','false')
+        else:
+            self.setResource('.resmon.config.hideGraphics','true')
+
+    def light(self,on=True):
+        if on:
+            self.setResource('.system.vcam.torch','true')
+        else:
+            self.setResource('.system.vcam.torch','false')
+
+    def setPalette(self, palette):
+        # iron.pal, bw.pal, rainbow.pal
+        self.setResource('.image.sysimage.palette.readFile',palette)
+
+    def login(self):
+        print("Logging in")
+        message = session.post(self.baseURL + 'login/dologin', data={'user_name':'admin','user_password':'admin'})
+
+        if (not('success' in message.text)):
+            print("Could not log in.")
+
+    def getSnapshot(self, jpgfile):
+
+        start = time.time()
+
+        dt = datetime.datetime.now()
+        filename = 'img-' + str(dt.year) + str(dt.month) + str(dt.day) + "-" + str(dt.hour) + str(dt.minute) + str(dt.second) + ".jpg"
+
+        self.setResource('.image.services.store.format','JPEG')
+        self.setResource('.image.services.store.overlay','true')
+        self.setResource('.image.services.store.owerwrite','true')
+        self.setResource('.image.services.store.fileNameW','/FLIR/images/' + filename)
+        self.setResource('.image.services.store.commit','true')
+        fh = open(jpgfile, "wb")
+
+        ready = False
+
+        print("Getting image from camera")
+        while not(ready):
+            response = session.get(self.baseURL + 'storage/download/image/' + filename, allow_redirects=True)
+
+            #if response.status_code == 404:
+            #    print(response.text)
+            #    #self.login()
+            #el
+            if response.status_code == requests.codes.ok:
+                ready = True
+                fh.write(response.content)
+            else:
+                time.sleep(0.3)
+                response = session.get(self.baseURL + 'download.php', data={'file':'/FLIR/images/' + filename}, allow_redirects=True)
+
+        fh.close()
+
+        print("Deleting picture: " + filename)
+        message = session.post(self.baseURL + 'storage/delete/image/' + filename)
+
+        if ('login' in message.text):
+            print("Need to log in first")
+            self.login()
+
+            message = session.post(self.baseURL + 'storage/delete/image/' + filename)
+
+        end = time.time()
+
+        print("Downloaded image " + jpgfile + " from camera in " + str(end-start) + " s.")
+
+    def getCsvData(self, jpgfile, csvfile, plot = False):
+
+        start = time.time()
+
+        fie = flir_image_extractor.FlirImageExtractor()
+        fie.process_image(jpgfile)
+
+        fie.export_thermal_to_csv(csvfile)
+
+        end = time.time()
+
+        print("Thermal data in picture " + jpgfile + " written to " + csvfile + " in " + str(end-start) + " s.")
+
+        if (plot):
+            fie.plot()
+
+    #def getBox(self,boxNumber):
+    #    ret = {}
+    #    bns = str(boxNumber)
+    #    ret['boxNumber']=boxNumber
+    #    #for field in ('active','avgT','avgValid','x','y','width','height','medianT','medianValid','minT','minValid','minX','minY','maxT','maxValid','maxX','maxY'):
+    #    for field in ('active','avgT','minT','maxT'):
+    #        ret[field] =self.getResource('.image.sysimg.measureFuncs.mbox.'+bns+'.'+field)
+    #        if field == 'active' and ret[field] == '"false"':
+    #            break
+    #    return ret
+
+    #def getBoxes(self):
+    #    ret = []
+    #    for i in range(1,7):
+    #        ret.append(self.getBox(i))
+    #    return ret
+
+if __name__ == '__main__':
+    import sys
+
+    args = parser.parse_args()
+
+    if (args.debug):
+        debug = True
+
+    if (not(args.url.startswith('http://'))):
+        args.url = 'http://' + args.url
+
+    if (not(args.url.endswith('/'))):
+        args.url = args.url + '/'
+
+    f = Flir(baseURL=args.url)
+
+    self.login()
+
+    if (args.type == 'visual'):
+        self.setVisualMode()
+        print("Setting visual mode")
+    elif (args.type == 'ir'):
+        self.setIRMode()
+        print("Setting IR mode")
+    elif (args.type == 'msx'):
+        self.setMSXMode()
+        print("Setting MSX mode")
+    else:
+        print("Wrong argument given to parameter 'type'")
+
+    if (args.nooverlay):
+        self.showOverlay(False)
+        print("Hiding the overlay")
+    else:
+        self.showOverlay(True)
+        print("Showing the overlay")
+
+    if (args.light == 'off'):
+        self.light(False)
+        print("Torchlight deactivated")
+    elif (args.light == 'on'):
+        self.light(True)
+        print("Torchlight activated")
+
+    if (args.autorange):
+        self.setAutoTemperatureRange()
+        print("Auto range set")
+
+    if (args.range):
+        self.setTemperatureRange(args.range[0],args.range[1])
+        print("Range set to [" + str(args.range[0]) + "," + str(args.range[1]) + "]")
+
+    if (args.interval):
+        if (args.snap):
+
+            while True:
+                timestamp = strftime("%H%M%S")
+                filename = args.snap.strip('.jpg') + '_' + timestamp + '.jpg'
+                self.getSnapshot(filename)
+
+                if (args.csv):
+                    filenamecsv = filename.strip('.jpg') + '.csv'
+                    self.getCsvData(filename, filenamecsv, False)
+
+                if (args.interval > 0):
+                    time.sleep(args.interval)
+
+    elif (args.snap):
+        self.getSnapshot(args.snap)
+
+    if (args.csv):
+        if (not args.snap):
+            self.getSnapshot('snap.jpg')
+            self.getCsvData('snap.jpg',args.csv, args.plot)
+        else:
+            self.getCsvData(args.snap, args.csv, args.plot)
+
+    # if len(sys.argv) > 1:
+    #     res = sys.argv[1]
+    #     if len(sys.argv) == 2:
+    #         if sys.argv[1] == '-b':
+    #             print self.getBox(1)
+    #         else:
+    #             print self.getResource(res)
+    #     elif len(sys.argv) == 3:
+    #         print self.setResource(res,sys.argv[2])
+    #     elif sys.argv[1] == '-t':
+    #         self.setTemperatureRange(float(sys.argv[2]),float(sys.argv[3]))
+    # else:
+    #     self.setMSXMode()
+    #     self.setTemperatureRange(20,45)
+    #     self.showOverlay(True)
+    #     #self.setPeriodicMode()
+        #for i in range(1,80):
+        #    for j in range(1,60):
+        #        print("value in " + str(i) + "," + str(j) + " is " + str(self.getTemperatureValue(i,j)))
+        #self.setPalette('bw.pal')
