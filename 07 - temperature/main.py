@@ -93,8 +93,9 @@ if __name__ == "__main__":
     # 2. Process thermal image to get temperature data
     thermal_data = processor.process_images(thermal_img)
     
-    # 3. Plot results
+    # 3. Save temperature data
+    processor.save_temperature_data(thermal_data)
+    
+    # 4. Plot results
     processor.plot_results(vis_img, thermal_data)
     
-    # 4. Save temperature data
-    processor.save_temperature_data(thermal_data)
